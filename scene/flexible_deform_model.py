@@ -494,6 +494,27 @@ class GaussianModel:
         # print("origin deformation point nums:",self._deformation_table.sum())
         self._deformation_table = torch.gt(self._deformation_accum.max(dim=-1).values/100,threshold)
         
+    def partial_gaussian_deformation(self, t):
+        idx = torch.tensor(t*CURVE_NUM).floor().int().item() + 2
+        if self.gm_num > 0:
+            min_idx = max(idx - self.gm_num, 0)
+            max_idx = min(idx + self.gm_num, CURVE_NUM)
+        else:
+            min_idx = 0
+            max_idx = CURVE_NUM
+        N = len(self._xyz)
+        coefs = self._coefs.reshape(N, CH_NUM, 3 , CURVE_NUM).contiguous() 
+        coefs = torch.split(coefs, [min_idx, max_idx-min_idx, CURVE_NUM-max_idx], -1)
+        # coefs = torch.split(coefs, [min_idx, max_idx-min_idx, CURVE_NUM-max_idx], -1)
+        deform = 0
+        for i, coef in enumerate(coefs):
+            if i != 1:
+                coef = coef.clone().detach()
+            weight, mu, sigma = torch.chunk(coef,3,-2)                         # [N, C:11, 1, m:10]
+            exponent = (t - mu)**2/(sigma**2+1e-6)
+            gaussian =  torch.exp(-exponent**2)         
+            deform += (gaussian*weight).sum(-1).squeeze()
+        return deform
     
     def gaussian_deformation(self, t, ch_num = 10, basis_num = 17):
         """
@@ -529,19 +550,25 @@ class GaussianModel:
             tuple: A tuple containing the updated positions, scaling factors, and rotations of the model.
                    (xyz: torch.Tensor, scales: torch.Tensor, rotations: torch.Tensor)
         """
-        deform = self.gaussian_deformation(time, ch_num=self.args.ch_num, basis_num=self.args.curve_num)
+        #deform = self.gaussian_deformation(time, ch_num=self.args.ch_num, basis_num=self.args.curve_num)
 
-        deform_xyz = deform[:, :3]
-        xyz += deform_xyz
-        deform_rot = deform[:, 3:7]
-        rotations += deform_rot
-        try:
-            # when ch_num is 10
-            deform_scaling = deform[:, 7:10]
-            scales += deform_scaling
-            return xyz, scales, rotations
-        except:
-            return xyz, scales, rotations
+        #deform_xyz = deform[:, :3]
+        #xyz += deform_xyz
+        #deform_rot = deform[:, 3:7]
+        #rotations += deform_rot
+        #try:
+        #    # when ch_num is 10
+        #    deform_scaling = deform[:, 7:10]
+        #    scales += deform_scaling
+        #    return xyz, scales, rotations
+        #except:
+        #    return xyz, scales, rotations
+        
+        if self.start_time is None:
+            self.start_time = time
+        self.time = time
+        self.deform = self.partial_gaussian_deformation((time-self.start_time)/self.max_time)
+        self.get_deformation()
         
     def print_deformation_weight_grad(self):
         for name, weight in self._deformation.named_parameters():
