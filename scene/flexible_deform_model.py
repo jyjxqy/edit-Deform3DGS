@@ -14,15 +14,28 @@ import numpy as np
 from utils.general_utils import inverse_sigmoid, get_expon_lr_func, build_rotation
 from torch import nn
 import os
+import cv2
+import open3d as o3d
 from utils.system_utils import mkdir_p
 from plyfile import PlyData, PlyElement
 from random import randint
-from utils.sh_utils import RGB2SH
+from utils.sh_utils import RGB2SH, SH2RGB
 from simple_knn._C import distCUDA2
-from utils.graphics_utils import BasicPointCloud
+from utils.graphics_utils import BasicPointCloud, getWorld2View2
 from utils.general_utils import strip_symmetric, build_scaling_rotation
 from scene.regulation import compute_plane_smoothness
 from typing import Tuple
+import scipy
+from scipy.spatial.transform import Rotation as R
+
+SAVE_TIME = 10
+INTERVAL = 0.05
+MAX_NUM = int(SAVE_TIME/INTERVAL)
+GAUSSIAN_NUM = 10
+FOURIER_ORDER_NUM = 10
+CH_NUM = 13
+CURVE_NUM = 20
+
 
 class GaussianModel:
 
