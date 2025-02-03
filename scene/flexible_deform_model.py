@@ -58,9 +58,9 @@ class GaussianModel:
         self.max_sh_degree = sh_degree  
         self._xyz = torch.empty(0)
         
-        self.args = args
+        self.args = args #
 
-        self._deformation_table = torch.empty(0)
+        self._deformation_table = torch.empty(0) #
         self._features_dc = torch.empty(0)
         self._features_rest = torch.empty(0)
         self._scaling = torch.empty(0)
@@ -69,11 +69,49 @@ class GaussianModel:
         self._opacity = torch.empty(0)
         self.max_radii2D = torch.empty(0)
         self.xyz_gradient_accum = torch.empty(0)
-        self.denom = torch.empty(0)
+        self.denom = torch.empty(0) #
         self.optimizer = None
         self.percent_dense = 0
         self.spatial_lr_scale = 0
         self.setup_functions()
+
+        ###########
+    
+        self.unique_kfIDs = torch.empty(0).int()
+        self.n_obs = torch.empty(0).int()
+        
+        self.gm_num = config['Args'].gaussian_num
+        self.ch_num = CH_NUM
+        self.fs_num = FOURIER_ORDER_NUM
+        
+        self.save_coef_path = None
+
+        self.start_time = None
+        self.init_param = 0.03
+        self.min_sigma2 = 1e-4
+
+        self.scaling_activation = lambda x: torch.clip(torch.exp(x), max=2)
+        # self.scaling_activation = torch.exp
+        self.scaling_inverse_activation = torch.log
+
+        self.covariance_activation = self.build_covariance_from_scaling_rotation
+
+        self.opacity_activation = torch.sigmoid
+        self.inverse_opacity_activation = inverse_sigmoid
+
+        self.rotation_activation = torch.nn.functional.normalize
+
+        self.config = config
+        self.ply_input = None
+
+        self.isotropic = False
+        
+        self.start_time = None
+        self.time = None
+        self.max_time = 1.
+        self.init_param = 0.01
+        self.clear_deformation()
+        self.training_setup()
 
     def capture(self):
         return (
