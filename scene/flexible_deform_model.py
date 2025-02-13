@@ -73,7 +73,7 @@ class GaussianModel:
         self.unique_kfIDs = torch.empty(0).int()
         self.n_obs = torch.empty(0).int()
 
-        self.config = config
+        self.config = None
         self.ply_input = None
         
         self.gm_num = config['Args'].gaussian_num
