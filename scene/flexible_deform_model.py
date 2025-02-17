@@ -20,7 +20,7 @@ from random import randint
 from utils.sh_utils import RGB2SH, SH2RGB
 from simple_knn._C import distCUDA2
 from utils.graphics_utils import BasicPointCloud, getWorld2View2
-from utils.general_utils import strip_symmetric, build_scaling_rotation, helper
+from utils.general_utils import strip_symmetric, build_scaling_rotation
 from scene.regulation import compute_plane_smoothness
 from typing import Tuple
 
@@ -30,6 +30,8 @@ from simple_knn._C import distCUDA2
 
 import scipy
 from scipy.spatial.transform import Rotation as R
+
+#changes made based on errors shown
 
 SAVE_TIME = 10
 INTERVAL = 0.05
@@ -42,11 +44,13 @@ CURVE_NUM = 20
 class GaussianModel:
 
     def setup_functions(self):
-        def build_covariance_from_scaling_rotation(scaling, scaling_modifier, rotation):
-            L = build_scaling_rotation(scaling_modifier * scaling, rotation)
-            actual_covariance = L @ L.transpose(1, 2)
-            symm = strip_symmetric(actual_covariance)
-            return symm
+        return
+
+    def build_covariance_from_scaling_rotation(scaling, scaling_modifier, rotation):
+        L = build_scaling_rotation(scaling_modifier * scaling, rotation)
+        actual_covariance = L @ L.transpose(1, 2)
+        symm = strip_symmetric(actual_covariance)
+        return symm
         
         self.scaling_activation = torch.exp
         self.scaling_inverse_activation = torch.log
@@ -55,7 +59,7 @@ class GaussianModel:
         self.inverse_opacity_activation = inverse_sigmoid
         self.rotation_activation = torch.nn.functional.normalize
 
-    def __init__(self, sh_degree: int, config=None):
+    def __init__(self, sh_degree : int, args, config=None):
         self.active_sh_degree = 0
         self.max_sh_degree = sh_degree
         # self.max_sh_degree = 0
@@ -73,10 +77,11 @@ class GaussianModel:
         self.unique_kfIDs = torch.empty(0).int()
         self.n_obs = torch.empty(0).int()
 
-        self.config = None
+        self.config = config
         self.ply_input = None
+        self.args = args
         
-        self.gm_num = config['Args'].gaussian_num
+        self.gm_num = 8
         self.ch_num = CH_NUM
         self.fs_num = FOURIER_ORDER_NUM
         
@@ -106,7 +111,7 @@ class GaussianModel:
         self.max_time = 1.
         self.init_param = 0.01
         self.clear_deformation()
-        self.training_setup()
+        #self.training_setup() 
 
     def capture(self):
         return (
@@ -236,6 +241,7 @@ class GaussianModel:
         self._deformation_table = torch.gt(torch.ones((self.get_xyz.shape[0]),device="cuda"),0)
 
     def training_setup(self, training_args):
+        #training_args = self.config['opt_params']
         self.percent_dense = training_args.percent_dense
         self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
         self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
@@ -261,6 +267,7 @@ class GaussianModel:
                                                     lr_final=training_args.deformation_lr_final*self.spatial_lr_scale,
                                                     lr_delay_mult=training_args.deformation_lr_delay_mult,
                                                     max_steps=training_args.position_lr_max_steps) 
+
 
 
     def update_learning_rate(self, iteration):
@@ -357,7 +364,7 @@ class GaussianModel:
             torch.save(self._deformation_table, os.path.join(path, "deformation_table.pth"))
         if hasattr(self, '_deformation_accum'):
             torch.save(self._deformation_accum, os.path.join(path, "deformation_accum.pth"))
-
+            
     def load_ply(self, path):
         plydata = PlyData.read(path)
     
@@ -495,7 +502,7 @@ class GaussianModel:
         opacities_new = inverse_sigmoid(torch.min(self.get_opacity, torch.ones_like(self.get_opacity)*0.01))
         optimizable_tensors = self.replace_tensor_to_optimizer(opacities_new, "opacity")
         self._opacity = optimizable_tensors["opacity"]
-    
+
     def replace_tensor_to_optimizer(self, tensor, name):
         optimizable_tensors = {}
         for group in self.optimizer.param_groups:
@@ -739,7 +746,6 @@ class GaussianModel:
         if CH_NUM>=11:
             # self.deform_opacity = deform[:, 10:]
             self.deform_brightness = self.deform[:, None, 10:]
-            
 
     def print_deformation_weight_grad(self):
         for name, weight in self._deformation.named_parameters():
@@ -811,3 +817,10 @@ class GaussianModel:
     def compute_regulation(self, time_smoothness_weight, l1_time_planes_weight, plane_tv_weight):
         return plane_tv_weight * self._plane_regulation() + time_smoothness_weight * self._time_regulation() + l1_time_planes_weight * self._l1_regulation()
 
+    def clear_deformation(self):
+        self.deform = None
+        self.deform_xyz = None
+        self.deform_rot = None
+        self.deform_scaling = None
+        self.deform_opacity = None 
+        self.deform_brightness = None
