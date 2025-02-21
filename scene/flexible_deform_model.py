@@ -46,6 +46,7 @@ class GaussianModel:
     def setup_functions(self):
         return
 
+
     def build_covariance_from_scaling_rotation(scaling, scaling_modifier, rotation):
         L = build_scaling_rotation(scaling_modifier * scaling, rotation)
         actual_covariance = L @ L.transpose(1, 2)
@@ -112,6 +113,7 @@ class GaussianModel:
         self.init_param = 0.01
         self.clear_deformation()
         #self.training_setup() 
+        
 
     def capture(self):
         return (
@@ -364,7 +366,7 @@ class GaussianModel:
             torch.save(self._deformation_table, os.path.join(path, "deformation_table.pth"))
         if hasattr(self, '_deformation_accum'):
             torch.save(self._deformation_accum, os.path.join(path, "deformation_accum.pth"))
-            
+
     def load_ply(self, path):
         plydata = PlyData.read(path)
     
@@ -502,7 +504,7 @@ class GaussianModel:
         opacities_new = inverse_sigmoid(torch.min(self.get_opacity, torch.ones_like(self.get_opacity)*0.01))
         optimizable_tensors = self.replace_tensor_to_optimizer(opacities_new, "opacity")
         self._opacity = optimizable_tensors["opacity"]
-
+    
     def replace_tensor_to_optimizer(self, tensor, name):
         optimizable_tensors = {}
         for group in self.optimizer.param_groups:
@@ -685,22 +687,6 @@ class GaussianModel:
         self._deformation_table = torch.gt(self._deformation_accum.max(dim=-1).values/100,threshold)
 
 
-    def piece_wise_gaussian_deformation(self, t):
-        idx = torch.tensor(t*CURVE_NUM).floor().int().item()
-        
-        min_idx = max(idx - GAUSSIAN_NUM//2, 0)
-        max_idx = min(idx + GAUSSIAN_NUM//2, MAX_NUM)
-        
-        N = len(self._xyz)
-        coefs = self._coefs.reshape(N, CH_NUM, 3 , MAX_NUM).contiguous() 
-        # piece_wise_coefs = torch.split(coefs, [min_idx, max_idx-min_idx, MAX_NUM-max_idx], -1)[1]
-        piece_wise_coefs = coefs[..., min_idx:max_idx]
-        weight, mu, sigma = torch.chunk(piece_wise_coefs,3,-2)                         # [N, C:11, 1, m:10]
-        # mu = torch.arange(min_idx, max_idx, dtype=weight.dtype, device=weight.device)*INTERVAL
-        exponent = (t - mu)**2/(sigma**2+1e-6)
-        gaussian =  torch.exp(-exponent**2)         
-        return (gaussian*weight).sum(-1).squeeze()
-
     def partial_gaussian_deformation(self, t):
         idx = torch.tensor(t*CURVE_NUM).floor().int().item() + 2
         if self.gm_num > 0:
@@ -723,14 +709,6 @@ class GaussianModel:
             deform += (gaussian*weight).sum(-1).squeeze()
         return deform
 
-    def gaussian_deformation(self, t):
-        N = len(self._xyz)
-        coefs = self._coefs.reshape(N, CH_NUM, 3 , CURVE_NUM).contiguous() 
-        weight, mu, sigma = torch.chunk(coefs,3,-2)                         # [N, C:11, 1, m:10]
-        exponent = (t - mu)**2/(sigma**2+1e-6)
-        gaussian =  torch.exp(-exponent**2)         
-        return (gaussian*weight).sum(-1).squeeze()
-
     def deformation(self, time):
         if self.start_time is None:
             self.start_time = time
@@ -739,7 +717,6 @@ class GaussianModel:
         self.get_deformation()
         
     def get_deformation(self):
-        # deform = self.piece_wise_gaussian_deformation(time-self.start_time)
         self.deform_xyz = self.deform[:,:3]
         self.deform_rot = self.deform[:, 3:7]
         self.deform_scaling = self.deform[:, 7:10]
