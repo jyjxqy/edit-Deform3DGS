@@ -701,28 +701,73 @@ class GaussianModel:
         gaussian =  torch.exp(-exponent**2)         
         return (gaussian*weight).sum(-1).squeeze()
 
-    def partial_gaussian_deformation(self, t):
-        idx = torch.tensor(t*CURVE_NUM).floor().int().item() + 2
-        if self.gm_num > 0:
-            min_idx = max(idx - self.gm_num, 0)
-            max_idx = min(idx + self.gm_num, CURVE_NUM)
-        else:
-            min_idx = 0
-            max_idx = CURVE_NUM
+
+    def partial_gaussian_deformation(self, t, ch_num=10, basis_num=17):
+        """
+        Applies a piecewise linear combination of learnable Gaussian basis functions to model surface deformation,
+        reducing the number of active basis functions to accelerate training.
+
+        Args:
+        t (torch.Tensor): The input time step.
+        ch_num (int): The number of channels in the deformation tensor (default: 10 = 3 (pos) + 3 (scale) + 4 (rot)).
+        basis_num (int): The total number of Gaussian basis functions.
+
+        Returns:
+            torch.Tensor: The deformed model tensor.
+        """
+        idx = torch.tensor(t * basis_num).floor().int().item() + 2
+        min_idx = max(idx - self.gm_num, 0) if self.gm_num > 0 else 0
+        max_idx = min(idx + self.gm_num, basis_num)
+        
         N = len(self._xyz)
-        coefs = self._coefs.reshape(N, CH_NUM, 3 , CURVE_NUM).contiguous() 
-        coefs = torch.split(coefs, [min_idx, max_idx-min_idx, CURVE_NUM-max_idx], -1)
-        # coefs = torch.split(coefs, [min_idx, max_idx-min_idx, CURVE_NUM-max_idx], -1)
+        coefs = self._coefs.reshape(N, ch_num, 3, basis_num).contiguous()
+        coefs = torch.split(coefs, [min_idx, max_idx - min_idx, basis_num - max_idx], -1)
+        
         deform = 0
         for i, coef in enumerate(coefs):
             if i != 1:
                 coef = coef.clone().detach()
-            weight, mu, sigma = torch.chunk(coef,3,-2)                         # [N, C:11, 1, m:10]
-            exponent = (t - mu)**2/(sigma**2+1e-6)
-            gaussian =  torch.exp(-exponent**2)         
-            deform += (gaussian*weight).sum(-1).squeeze()
+            weight, mu, sigma = torch.chunk(coef, 3, -2)
+            exponent = (t - mu) ** 2 / (sigma ** 2 + 1e-6)
+            gaussian = torch.exp(-exponent ** 2)
+            deform += (gaussian * weight).sum(-1).squeeze()
+        
         return deform
 
+    def deformation(self, xyz: torch.Tensor, scales: torch.Tensor, rotations: torch.Tensor, time: float) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Apply flexible deformation modeling to the Gaussian model with reduced learnable parameters by selecting only active basis functions.
+
+        Args:
+            xyz (torch.Tensor): The current positions of the model vertices. (shape: [N, 3])
+            scales (torch.Tensor): The current scales per Gaussian primitive. (shape: [N, 3])
+            rotations (torch.Tensor): The current rotations of the model. (shape: [N, 4])
+            time (float): The current time.
+
+        Returns:
+            tuple: A tuple containing the updated positions, scaling factors, and rotations of the model.
+                   (xyz: torch.Tensor, scales: torch.Tensor, rotations: torch.Tensor)
+        """
+        if self.start_time is None:
+            self.start_time = time
+        self.time = time
+        self.deform = self.partial_gaussian_deformation((time-self.start_time)/self.max_time)
+        self.get_deformation()
+        
+        deform = self.partial_gaussian_deformation(time, ch_num=self.args.ch_num, basis_num=self.args.curve_num)
+        
+        deform_xyz = deform[:, :3]
+        xyz += deform_xyz
+        deform_rot = deform[:, 3:7]
+        rotations += deform_rot
+        try:
+            deform_scaling = deform[:, 7:10]
+            scales += deform_scaling
+            return xyz, scales, rotations
+        except:
+            return xyz, scales, rotations
+
+    
     def gaussian_deformation(self, t):
         N = len(self._xyz)
         coefs = self._coefs.reshape(N, CH_NUM, 3 , CURVE_NUM).contiguous() 
@@ -731,12 +776,6 @@ class GaussianModel:
         gaussian =  torch.exp(-exponent**2)         
         return (gaussian*weight).sum(-1).squeeze()
 
-    def deformation(self, time):
-        if self.start_time is None:
-            self.start_time = time
-        self.time = time
-        self.deform = self.partial_gaussian_deformation((time-self.start_time)/self.max_time)
-        self.get_deformation()
         
     def get_deformation(self):
         # deform = self.piece_wise_gaussian_deformation(time-self.start_time)
