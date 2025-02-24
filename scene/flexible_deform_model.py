@@ -709,12 +709,16 @@ class GaussianModel:
             deform += (gaussian*weight).sum(-1).squeeze()
         return deform
 
-    def deformation(self, time):
+    def deformation(self, xyz: torch.Tensor, scales: torch.Tensor, rotations: torch.Tensor, time: float):
         if self.start_time is None:
             self.start_time = time
         self.time = time
         self.deform = self.partial_gaussian_deformation((time-self.start_time)/self.max_time)
         self.get_deformation()
+        xyz += self.deform_xyz
+        rotations += self.deform_rot
+        scales += self.deform_scaling
+        return xyz, scales, rotations
         
     def get_deformation(self):
         self.deform_xyz = self.deform[:,:3]
@@ -744,11 +748,9 @@ class GaussianModel:
             /torch.abs(coefs.max(dim=-1, keepdim = True)[0])).mean()   
         
     def compute_l1_regulation(self,):
-
         return (torch.abs(self._coefs)).mean()
     
     def compute_l2_regulation(self,):
-
         return (self._coefs**2).mean()
     
     def _plane_regulation(self):
