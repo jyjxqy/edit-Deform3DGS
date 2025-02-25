@@ -154,10 +154,7 @@ class GaussianModel:
 
     @property
     def get_scaling(self):
-        if self.deform_scaling is not None:
-            return self.scaling_activation(self._scaling + self.deform_scaling)
-        else:
-            return self.scaling_activation(self._scaling)
+        return self.scaling_activation(self._scaling)
         
     @property
     def get_gaussian_scaling(self):
@@ -165,10 +162,7 @@ class GaussianModel:
 
     @property
     def get_rotation(self):
-        if self.deform_rot is not None:
-            return self.rotation_activation(self._rotation + self.deform_rot)
-        else:
-            return self.rotation_activation(self._rotation)
+        return self.rotation_activation(self._rotation)
         
     @property
     def get_gaussian_rotation(self):
@@ -176,8 +170,6 @@ class GaussianModel:
 
     @property
     def get_xyz(self):
-        if self.deform_xyz is not None:
-            return self._xyz + self.deform_xyz
         return self._xyz
     
     @property
@@ -191,8 +183,6 @@ class GaussianModel:
 
     @property
     def get_opacity(self):
-        if self.deform_opacity is not None:
-            return self.opacity_activation(self.deform_opacity + self._opacity)
         return self.opacity_activation(self._opacity)
         
     @property
@@ -225,9 +215,9 @@ class GaussianModel:
 
         
         N = fused_point_cloud.shape[0]
-        weight_coefs = torch.zeros((N, self.args.ch_num, self.args.curve_num))
-        position_coefs = torch.zeros((N, self.args.ch_num, self.args.curve_num)) + torch.linspace(0,1,self.args.curve_num)
-        shape_coefs = torch.zeros((N, self.args.ch_num, self.args.curve_num)) + self.args.init_param
+        weight_coefs = torch.zeros((N, CH_NUM, CURVE_NUM))
+        position_coefs = torch.zeros((N, CH_NUM, CURVE_NUM)) + torch.linspace(0,1,CURVE_NUM)
+        shape_coefs = torch.zeros((N, CH_NUM, CURVE_NUM)) + self.args.init_param
         _coefs = torch.stack((weight_coefs, position_coefs, shape_coefs), dim=2).reshape(N,-1).float().to("cuda")
         self._coefs = nn.Parameter(_coefs.requires_grad_(True))
         
@@ -710,24 +700,18 @@ class GaussianModel:
         return deform
 
     def deformation(self, xyz: torch.Tensor, scales: torch.Tensor, rotations: torch.Tensor, time: float):
-        if self.start_time is None:
-            self.start_time = time
-        self.time = time
-        self.deform = self.partial_gaussian_deformation((time-self.start_time)/self.max_time)
-        self.get_deformation()
-        xyz += self.deform_xyz
-        rotations += self.deform_rot
-        scales += self.deform_scaling
-        return xyz, scales, rotations
-        
-    def get_deformation(self):
-        self.deform_xyz = self.deform[:,:3]
-        self.deform_rot = self.deform[:, 3:7]
-        self.deform_scaling = self.deform[:, 7:10]
+        deform = self.partial_gaussian_deformation(time)
+        deform_xyz = deform[:,:3]
+        deform_rot = deform[:, 3:7]
+        deform_scaling = deform[:, 7:10]
         if CH_NUM>=11:
             # self.deform_opacity = deform[:, 10:]
-            self.deform_brightness = self.deform[:, None, 10:]
-            
+            deform_brightness = deform[:, None, 10:]
+        xyz += deform_xyz
+        rotations += deform_rot
+        scales += deform_scaling
+        return xyz, scales, rotations
+
 
     def print_deformation_weight_grad(self):
         for name, weight in self._deformation.named_parameters():
@@ -742,7 +726,7 @@ class GaussianModel:
     
     def compute_sparsity_regulation(self,):
         N = len(self._xyz)
-        ch_num = self.args.ch_num
+        ch_num = CH_NUM
         coefs = self._coefs.reshape(N, ch_num, -1).contiguous() # [N, 7, ORDER_NUM + ORDER_NUM * 2 ]
         return (torch.sum(torch.abs(coefs), dim=-1, keepdim=True)\
             /torch.abs(coefs.max(dim=-1, keepdim = True)[0])).mean()   
